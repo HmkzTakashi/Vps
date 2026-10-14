@@ -1,74 +1,69 @@
-FROM debian:bullseye
+FROM --platform=linux/amd64 ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Ho_Chi_Minh
 
-# Cài đặt kiến trúc 32-bit cho Wine
-RUN dpkg --add-architecture i386
-
-# Cài đặt đầy đủ: xorgxrdp, ssl-cert, dbus và các công cụ cần thiết
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    xrdp \
-    xorgxrdp \
-    xfce4 \
-    xfce4-goodies \
-    xorg \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    xfce4 xfce4-goodies \
+    xrdp xorgxrdp \
     dbus-x11 \
-    ssl-cert \
-    sudo \
-    curl \
-    wget \
-    nano \
-    net-tools \
-    pulseaudio \
-    pulseaudio-utils \
-    wine \
-    wine32 \
-    firefox-esr \
+    sudo curl wget \
     ca-certificates \
-    tzdata && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+    net-tools \
+    openssl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Cấu hình quyền cho Xorg & XRDP
-RUN sed -i 's/^allowed_users=.*/allowed_users=anybody/' /etc/X11/Xwrapper.config || echo "allowed_users=anybody" >> /etc/X11/Xwrapper.config
-RUN adduser xrdp ssl-cert
+# Fix lỗi bảo mật và cấp quyền cho xrdp
+RUN adduser xrdp ssl-cert && \
+    sed -i 's/3389/3389/g' /etc/xrdp/xrdp.ini && \
+    sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
 
-# Giảm mã hóa RDP để tương thích mọi phần mềm Remote Desktop
-RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
-    sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini
-
-# Cấu hình khởi động giao diện XFCE chuẩn (chống lỗi màn hình đen)
-RUN printf '#!/bin/sh\nunset DBUS_SESSION_BUS_ADDRESS\nunset XDG_RUNTIME_DIR\nexec startxfce4\n' > /etc/xrdp/startwm.sh && \
-    chmod +x /etc/xrdp/startwm.sh
-
-# Tạo file chạy khởi động trực tiếp bên trong Docker (không cần COPY file ngoài)
-RUN cat <<'EOF' > /start.sh
+# Tạo script khởi động tối ưu cho XRDP
+RUN cat > /usr/local/bin/start-desktop.sh <<'EOF'
 #!/bin/bash
 set -e
 
-# Đặt mật khẩu: Lấy từ biến môi trường RDP_PASSWORD, nếu không có thì mặc định là root
-PASSWORD="${RDP_PASSWORD:-root}"
-echo "root:$PASSWORD" | chpasswd
+RDP_USER="${RDP_USER:-desktop}"
+RDP_PASSWORD="${RDP_PASSWORD:-123456}"
 
-# Tạo thư mục và sinh machine-id cho dbus
-mkdir -p /var/run/dbus /run/xrdp
-dbus-uuidgen > /var/lib/dbus/machine-id 2>/dev/null || true
-dbus-daemon --system --fork 2>/dev/null || true
+# Tạo user nếu chưa tồn tại
+if ! id "$RDP_USER" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$RDP_USER"
+    echo "$RDP_USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$RDP_USER"
+    chmod 0440 "/etc/sudoers.d/$RDP_USER"
+fi
 
-# Khởi động dịch vụ sesman
-xrdp-sesman
+# Đặt mật khẩu (mặc định là 123456 nếu không đặt RDP_PASSWORD trên Railway)
+echo "$RDP_USER:$RDP_PASSWORD" | chpasswd
 
-# Tạo trước file log nếu chưa có
-touch /var/log/xrdp.log /var/log/xrdp-sesman.log
+# Cấu hình session XFCE chống màn hình đen
+echo "unset DBUS_SESSION_BUS_ADDRESS" > "/home/$RDP_USER/.xsession"
+echo "unset XDG_RUNTIME_DIR" >> "/home/$RDP_USER/.xsession"
+echo "exec startxfce4" >> "/home/$RDP_USER/.xsession"
+chown "$RDP_USER:$RDP_USER" "/home/$RDP_USER/.xsession"
+chmod +x "/home/$RDP_USER/.xsession"
 
-echo "XRDP đang chạy trên cổng 3389..."
+# Dọn dẹp PID cũ nếu container restart
+rm -rf /var/run/xrdp/* /var/run/dbus/*
+mkdir -p /var/run/dbus
+dbus-daemon --system --fork || true
 
-# Chạy xrdp ở chế độ foreground (nodaemon) để giữ container luôn ACTIVE
-exec xrdp -n
+# Khởi động dịch vụ
+service xrdp-sesman start
+service xrdp start
+
+echo "=========================================="
+echo "XRDP is listening on port 3389"
+echo "Username: $RDP_USER"
+echo "Password: $RDP_PASSWORD"
+echo "=========================================="
+
+tail -f /var/log/xrdp.log /var/log/xrdp-sesman.log
 EOF
 
-RUN chmod +x /start.sh
+RUN chmod +x /usr/local/bin/start-desktop.sh
 
 EXPOSE 3389
 
-CMD ["/start.sh"]
+CMD ["/usr/local/bin/start-desktop.sh"]
