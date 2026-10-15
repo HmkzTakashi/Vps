@@ -1,7 +1,10 @@
-# Khởi động XRDP
-service xrdp-sesman start
+#!/bin/bash
+
+service dbus start
+pulseaudio --start --system --disallow-exit --disable-shm
 service xrdp start
 
-# Mở tự động TCP Tunnel không cần bấm gì trên Dashboard Railway:
-echo "Đang tạo đường link Remote Desktop..."
-ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:3389 a.pinggy.io tcp
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
+
+tail -f /var/log/xrdp-sesman.log
