@@ -1,48 +1,47 @@
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Ho_Chi_Minh
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# Cài đặt XFCE4 và XRDP
+RUN apt-get update && apt-get install -y --no-install-recommends \
     xfce4 xfce4-goodies \
-    xrdp xorgxrdp \
-    dbus-x11 \
-    sudo curl wget \
-    ca-certificates \
-    net-tools \
-    openssl && \
-    rm -rf /var/lib/apt/lists/*
+    xrdp \
+    tigervnc-standalone-server \
+    dbus-x11 sudo \
+    && rm -rf /var/lib/apt/lists/*
 
-# Fix lỗi bảo mật và cấp quyền cho xrdp
-RUN adduser xrdp ssl-cert && \
-    sed -i 's/3389/3389/g' /etc/xrdp/xrdp.ini && \
-    sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini
+# Fix lỗi PAM (ngăn chặn tình trạng văng session khi đăng nhập)
+RUN sed -i 's/.*pam_systemd.so/#&/' /etc/pam.d/common-session
 
-# Tạo script khởi động tối ưu cho XRDP
-RUN cat > /usr/local/bin/start-desktop.sh <<'EOF'
-#!/bin/bash
-set -e
+# Chuyển XRDP sang chế độ Xvnc để không bị crash đồ họa trong Docker
+RUN sed -i 's/\[Xorg\]/\[Xorg_disabled\]/' /etc/xrdp/xrdp.ini && \
+    sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini
 
-RDP_USER="${RDP_USER:-desktop}"
-RDP_PASSWORD="${RDP_PASSWORD:-123456}"
+# Tạo tài khoản đăng nhập
+RUN useradd -m -s /bin/bash desktop && \
+    echo "desktop:123456" | chpasswd && \
+    echo "desktop ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/desktop && \
+    chmod 0440 /etc/sudoers.d/desktop && \
+    echo "exec startxfce4" > /home/desktop/.xsession && \
+    chown desktop:desktop /home/desktop/.xsession
 
-# Tạo user nếu chưa tồn tại
-if ! id "$RDP_USER" >/dev/null 2>&1; then
-    useradd -m -s /bin/bash "$RDP_USER"
-    echo "$RDP_USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$RDP_USER"
-    chmod 0440 "/etc/sudoers.d/$RDP_USER"
-fi
+RUN adduser xrdp ssl-cert
 
-# Đặt mật khẩu (mặc định là 123456 nếu không đặt RDP_PASSWORD trên Railway)
-echo "$RDP_USER:$RDP_PASSWORD" | chpasswd
+# Script khởi động trực tiếp cổng 3389
+RUN echo '#!/bin/bash\n\
+rm -rf /var/run/xrdp/*\n\
+mkdir -p /var/run/xrdp /var/run/dbus /var/run/xrdp/sockdir\n\
+chmod 2775 /var/run/xrdp\n\
+chmod 3777 /var/run/xrdp/sockdir\n\
+dbus-daemon --system --fork || true\n\
+/usr/sbin/xrdp-sesman --nodaemon &\n\
+exec /usr/sbin/xrdp --nodaemon\n\
+' > /start.sh && chmod +x /start.sh
 
-# Cấu hình session XFCE chống màn hình đen
-echo "unset DBUS_SESSION_BUS_ADDRESS" > "/home/$RDP_USER/.xsession"
-echo "unset XDG_RUNTIME_DIR" >> "/home/$RDP_USER/.xsession"
-echo "exec startxfce4" >> "/home/$RDP_USER/.xsession"
-chown "$RDP_USER:$RDP_USER" "/home/$RDP_USER/.xsession"
-chmod +x "/home/$RDP_USER/.xsession"
+EXPOSE 3389
+
+CMD ["/start.sh"]on"
 
 # Dọn dẹp PID cũ nếu container restart
 rm -rf /var/run/xrdp/* /var/run/dbus/*
