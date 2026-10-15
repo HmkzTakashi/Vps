@@ -1,37 +1,38 @@
+
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Ho_Chi_Minh
 
-# Cài đặt XFCE4 và XRDP
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    xfce4 xfce4-goodies \
+# Cài đặt giao diện và XRDP
+RUN apt-get update && apt-get install -y \
+    xfce4 \
+    xfce4-goodies \
     xrdp \
+    ssl-cert \
     tigervnc-standalone-server \
-    dbus-x11 sudo \
+    dbus-x11 \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Fix lỗi PAM (ngăn chặn tình trạng văng session khi đăng nhập)
+# Fix lỗi xác thực và chuyển sang chế độ ảo tránh văng màn hình trên Docker
 RUN sed -i 's/.*pam_systemd.so/#&/' /etc/pam.d/common-session
+RUN sed -i 's/\[Xorg\]/\[Xorg_disabled\]/' /etc/xrdp/xrdp.ini
+RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini
 
-# Chuyển XRDP sang chế độ Xvnc để không bị crash đồ họa trong Docker
-RUN sed -i 's/\[Xorg\]/\[Xorg_disabled\]/' /etc/xrdp/xrdp.ini && \
-    sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini
+# Mở quyền cho phép đăng nhập tài khoản root trên XRDP
+RUN sed -i 's/AllowRootLogin=false/AllowRootLogin=true/' /etc/xrdp/sesman.ini
 
-# Tạo tài khoản đăng nhập
-RUN useradd -m -s /bin/bash desktop && \
-    echo "desktop:123456" | chpasswd && \
-    echo "desktop ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/desktop && \
-    chmod 0440 /etc/sudoers.d/desktop && \
-    echo "exec startxfce4" > /home/desktop/.xsession && \
-    chown desktop:desktop /home/desktop/.xsession
+# Đặt mật khẩu cho root và tạo phiên làm việc XFCE4
+RUN echo "root:root" | chpasswd
+RUN echo "startxfce4" > /root/.xsession
 
 RUN adduser xrdp ssl-cert
 
-# Script khởi động trực tiếp cổng 3389
-RUN echo '#!/bin/bash\n\
-rm -rf /var/run/xrdp/*\n\
-mkdir -p /var/run/xrdp /var/run/dbus /var/run/xrdp/sockdir\n\
+EXPOSE 3389
+
+# Lệnh chạy dịch vụ
+CMD bash -c "rm -rf /var/run/xrdp/* /var/run/dbus/* && mkdir -p /var/run/xrdp/sockdir /var/run/dbus && chown -R xrdp:xrdp /var/run/xrdp && dbus-daemon --system --fork; /usr/sbin/xrdp-sesman; exec /usr/sbin/xrdp -n"us /var/run/xrdp/sockdir\n\
 chmod 2775 /var/run/xrdp\n\
 chmod 3777 /var/run/xrdp/sockdir\n\
 dbus-daemon --system --fork || true\n\
