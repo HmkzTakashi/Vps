@@ -5,7 +5,7 @@ ENV TZ=Asia/Ho_Chi_Minh
 
 RUN dpkg --add-architecture i386
 
-# Cài đặt XFCE4, XRDP, Wine, Firefox và công cụ tự động căn chỉnh cửa sổ (devilspie2)
+# Cài đặt XFCE4, XRDP, Wine, Firefox và Audio
 RUN apt-get update && apt-get install -y \
     xrdp \
     xfce4 \
@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
     ssl-cert \
     tigervnc-standalone-server \
     x11-xserver-utils \
-    devilspie2 \
     sudo \
     curl \
     wget \
@@ -34,15 +33,10 @@ RUN mkdir -p /etc/pulse && \
 RUN echo "root:root" | chpasswd && \
     mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id
 
-# CẤU HÌNH TỰ ĐỘNG: Bất kỳ cửa sổ nào mở ra sẽ TỰ ĐỘNG phóng to vừa in màn hình
-RUN mkdir -p /root/.config/devilspie2 && \
-    echo "maximize();" > /root/.config/devilspie2/auto_maximize.lua
-
-# Khởi chạy dịch vụ tự động cùng hệ thống
+# Khởi chạy XFCE với D-Bus chuẩn (không ép full màn hình, cửa sổ mở tự nhiên)
 RUN echo '#!/bin/sh' > /etc/xrdp/startwm.sh && \
     echo 'unset DBUS_SESSION_BUS_ADDRESS' >> /etc/xrdp/startwm.sh && \
     echo 'unset XDG_RUNTIME_DIR' >> /etc/xrdp/startwm.sh && \
-    echo 'devilspie2 &' >> /etc/xrdp/startwm.sh && \
     echo 'exec dbus-launch --exit-with-session startxfce4' >> /etc/xrdp/startwm.sh && \
     chmod +x /etc/xrdp/startwm.sh && \
     cp /etc/xrdp/startwm.sh /root/.xsession && \
