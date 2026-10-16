@@ -33,7 +33,12 @@ RUN mkdir -p /etc/pulse && \
 RUN echo "root:root" | chpasswd && \
     mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id
 
-# Khởi chạy XFCE với D-Bus chuẩn (không ép full màn hình, cửa sổ mở tự nhiên)
+# CẤU HÌNH CỬA SỔ TERMINAL VỪA KHÍT MÀN HÌNH ĐIỆN THOẠI:
+# Giảm chiều rộng xuống 48 cột để không bị tràn mất nút X ở mép phải
+RUN mkdir -p /root/.config/xfce4/terminal && \
+    printf '[Configuration]\nMiscDefaultGeometry=48x16\nFontName=Monospace 9\n' > /root/.config/xfce4/terminal/terminalrc
+
+# Khởi chạy XFCE với D-Bus chuẩn
 RUN echo '#!/bin/sh' > /etc/xrdp/startwm.sh && \
     echo 'unset DBUS_SESSION_BUS_ADDRESS' >> /etc/xrdp/startwm.sh && \
     echo 'unset XDG_RUNTIME_DIR' >> /etc/xrdp/startwm.sh && \
