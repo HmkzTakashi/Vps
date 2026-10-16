@@ -3,23 +3,24 @@ FROM debian:bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Ho_Chi_Minh
 
+# Bật kiến trúc 32-bit cho Wine
 RUN dpkg --add-architecture i386
 
-# Cài đặt XFCE4, XRDP, Wine, Firefox, Audio và devilspie2
+# Cài đặt đầy đủ các gói từ bản gốc debianxrdp
 RUN apt-get update && apt-get install -y \
     xrdp \
     xfce4 \
     xfce4-goodies \
+    xorg \
     dbus-x11 \
     ssl-cert \
     tigervnc-standalone-server \
-    x11-xserver-utils \
-    devilspie2 \
     sudo \
     curl \
     wget \
     nano \
     net-tools \
+    policykit-1 \
     pulseaudio \
     pulseaudio-utils \
     wine \
@@ -28,40 +29,45 @@ RUN apt-get update && apt-get install -y \
     firefox-esr \
     && rm -rf /var/lib/apt/lists/*
 
+# Cấu hình âm thanh từ file pulse-client.conf gốc
 RUN mkdir -p /etc/pulse && \
-    echo "default-server = unix:/run/pulse/native\nautospawn = no\ndaemon-binary = /bin/true" > /etc/pulse/client.conf
+    printf 'default-server = unix:/run/pulse/native\nautospawn = no\ndaemon-binary = /bin/true\n' > /etc/pulse/client.conf
 
+# Cài đặt mật khẩu root và sinh machine-id
 RUN echo "root:root" | chpasswd && \
-    mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id
+    mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id && \
+    mkdir -p /etc/X11 && echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
 
-# CẤU HÌNH CỬA SỔ: TỰ ĐỘNG CHỪA LỀ 2 BÊN 4%, CĂN GIỮA, KHÔNG TRÀN VIỀN
-RUN mkdir -p /root/.config/devilspie2 && \
-    echo 'if (get_window_type() == "WINDOW_TYPE_NORMAL") then\n\
-    local sw, sh = get_screen_geometry();\n\
-    local x, y, w, h = get_window_geometry();\n\
-    local target_w = math.floor(sw * 0.92);\n\
-    local target_x = math.floor(sw * 0.04);\n\
-    local target_h = math.min(h, math.floor(sh * 0.65));\n\
-    local target_y = math.max(y, 35);\n\
-    set_window_geometry(target_x, target_y, target_w, target_h);\n\
-end' > /root/.config/devilspie2/fit_window.lua
+# CẤU HÌNH GỐC XFCE: CHỐNG TRÀN VIỀN, CĂN LỀ 12PX VÀ TỰ CĂN GIỮA MÀN HÌNH
+RUN mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n\
+<channel name="xfwm4" version="1.0">\n\
+  <property name="general" type="empty">\n\
+    <property name="prevent_placement_offscreen" type="bool" value="true"/>\n\
+    <property name="placement_mode" type="string" value="center"/>\n\
+    <property name="snap_to_border" type="bool" value="true"/>\n\
+    <property name="margin_left" type="int" value="12"/>\n\
+    <property name="margin_right" type="int" value="12"/>\n\
+  </property>\n\
+</channel>\n' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
 
-# Khởi chạy XFCE với D-Bus và devilspie2
-RUN echo '#!/bin/sh' > /etc/xrdp/startwm.sh && \
-    echo 'unset DBUS_SESSION_BUS_ADDRESS' >> /etc/xrdp/startwm.sh && \
-    echo 'unset XDG_RUNTIME_DIR' >> /etc/xrdp/startwm.sh && \
-    echo 'devilspie2 &' >> /etc/xrdp/startwm.sh && \
-    echo 'exec dbus-launch --exit-with-session startxfce4' >> /etc/xrdp/startwm.sh && \
+# Cấu hình khởi động XFCE qua D-Bus
+RUN printf '#!/bin/sh\nunset DBUS_SESSION_BUS_ADDRESS\nunset XDG_RUNTIME_DIR\nexec dbus-launch --exit-with-session startxfce4\n' > /etc/xrdp/startwm.sh && \
     chmod +x /etc/xrdp/startwm.sh && \
     cp /etc/xrdp/startwm.sh /root/.xsession && \
     chmod 700 /root/.xsession
 
+# Cấu hình XRDP tương thích Windows RDP
 RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
     sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini && \
     sed -i 's/\[Xorg\]/\[Xorg_disabled\]/' /etc/xrdp/xrdp.ini && \
     sed -i 's/AllowRootLogin=false/AllowRootLogin=true/' /etc/xrdp/sesman.ini && \
     adduser xrdp ssl-cert
 
+# Tích hợp start.sh trực tiếp
+RUN printf '#!/bin/bash\nrm -rf /var/run/xrdp/* /var/run/dbus/*\nmkdir -p /var/run/xrdp/sockdir /var/run/dbus\nchown -R xrdp:xrdp /var/run/xrdp\ndbus-daemon --system --fork\n/usr/sbin/xrdp-sesman\nexec /usr/sbin/xrdp -n\n' > /start.sh && \
+    chmod +x /start.sh
+
 EXPOSE 3389
 
-CMD bash -c "rm -rf /var/run/xrdp/* /var/run/dbus/* && mkdir -p /var/run/xrdp/sockdir /var/run/dbus && chown -R xrdp:xrdp /var/run/xrdp && dbus-daemon --system --fork; /usr/sbin/xrdp-sesman; exec /usr/sbin/xrdp -n"
+CMD ["/start.sh"]
