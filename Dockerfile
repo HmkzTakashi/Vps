@@ -1,17 +1,16 @@
-FROM debian:bullseye
+FROM debian:bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Ho_Chi_Minh
 
-# Bật kiến trúc 32-bit để chạy Wine
+# 1. Bật kiến trúc i386 để hỗ trợ Wine 32-bit
 RUN dpkg --add-architecture i386
 
-# Cài đặt đầy đủ các gói của debianxrdp: XFCE, XRDP, Wine, Firefox, Audio
+# 2. Cài đặt XFCE4, XRDP, Wine, Firefox và Audio
 RUN apt-get update && apt-get install -y \
     xrdp \
     xfce4 \
     xfce4-goodies \
-    xorg \
     dbus-x11 \
     ssl-cert \
     tigervnc-standalone-server \
@@ -20,23 +19,23 @@ RUN apt-get update && apt-get install -y \
     wget \
     nano \
     net-tools \
-    policykit-1 \
     pulseaudio \
     pulseaudio-utils \
     wine \
     wine32 \
+    wine64 \
     firefox-esr \
     && rm -rf /var/lib/apt/lists/*
 
-# Cấu hình tài khoản root
-RUN echo "root:root" | chpasswd
+# 3. Cấu hình âm thanh PulseAudio (thay thế cho file pulse-client.conf rời)
+RUN mkdir -p /etc/pulse && \
+    echo "default-server = unix:/run/pulse/native\nautospawn = no\ndaemon-binary = /bin/true" > /etc/pulse/client.conf
 
-# Cấu hình X11
-RUN mkdir -p /etc/X11 && echo "allowed_users=anybody" > /etc/X11/Xwrapper.config && \
+# 4. Cấu hình tài khoản root
+RUN echo "root:root" | chpasswd && \
     mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id
 
-# SỬA TRIỆT ĐỂ LỖI BẤM ỨNG DỤNG KHÔNG MỞ:
-# Khởi tạo dbus-launch --exit-with-session và xóa các biến xung đột
+# 5. Fix lỗi bấm ứng dụng không mở được trên XFCE bằng D-Bus session
 RUN echo '#!/bin/sh' > /etc/xrdp/startwm.sh && \
     echo 'unset DBUS_SESSION_BUS_ADDRESS' >> /etc/xrdp/startwm.sh && \
     echo 'unset XDG_RUNTIME_DIR' >> /etc/xrdp/startwm.sh && \
@@ -45,7 +44,7 @@ RUN echo '#!/bin/sh' > /etc/xrdp/startwm.sh && \
     cp /etc/xrdp/startwm.sh /root/.xsession && \
     chmod 700 /root/.xsession
 
-# Cấu hình XRDP tương thích Windows và cho phép root đăng nhập
+# 6. Tối ưu XRDP chạy trên Docker qua cổng 3389
 RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
     sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini && \
     sed -i 's/\[Xorg\]/\[Xorg_disabled\]/' /etc/xrdp/xrdp.ini && \
@@ -54,5 +53,5 @@ RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
 
 EXPOSE 3389
 
-# Khởi động dịch vụ XRDP
+# 7. Khởi động dịch vụ (tự động dọn dẹp lock file và giữ tiến trình)
 CMD bash -c "rm -rf /var/run/xrdp/* /var/run/dbus/* && mkdir -p /var/run/xrdp/sockdir /var/run/dbus && chown -R xrdp:xrdp /var/run/xrdp && dbus-daemon --system --fork; /usr/sbin/xrdp-sesman; exec /usr/sbin/xrdp -n"
