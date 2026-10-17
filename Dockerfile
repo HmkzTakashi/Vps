@@ -53,7 +53,7 @@ RUN mkdir -p /root/.config/devilspie2 && \
 end\n' > /root/.config/devilspie2/fit_screen.lua
 
 # 5. Cấu hình tài khoản root:root và X11
-RUN echo "jcungban:meows.vn" | chpasswd && \
+RUN echo "jcungban:meowsvn" | chpasswd && \
     mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id && \
     mkdir -p /etc/X11 && echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
 
