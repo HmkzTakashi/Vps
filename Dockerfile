@@ -41,7 +41,7 @@ ENV LC_ALL=en_US.UTF-8
 RUN update-alternatives --set x-terminal-emulator /usr/bin/xfce4-terminal.wrapper
 
 # 4. TỰ ĐỘNG CÂN CHỈNH: TẤT CẢ CỬA SỔ RỘNG BẰNG NHAU + VỪA VẶN MÀN HÌNH (KHÔNG TRÀN VIỀN)
-RUN mkdir -p /home/jcungban/.config/devilspie2 && \
+RUN mkdir -p /jcungban/.config/devilspie2 && \
     printf 'if (get_window_type() == "WINDOW_TYPE_NORMAL") then\n\
     local sw, sh = get_screen_geometry();\n\
     local x, y, w, h = get_window_geometry();\n\
@@ -50,10 +50,10 @@ RUN mkdir -p /home/jcungban/.config/devilspie2 && \
     local target_h = math.min(h, sh - 85);\n\
     local target_y = math.max(y, 28);\n\
     set_window_geometry(target_x, target_y, target_w, target_h);\n\
-end\n' > /home/jcungban/.config/devilspie2/fit_screen.lua
+end\n' > /jcungban/.config/devilspie2/fit_screen.lua
 
-# 5. Cấu hình tài khoản jcungban:meows.vn và X11
-RUN useradd -m -s /bin/bash jcungban && echo "jcungban:meows.vn" | chpasswd && echo "jcungban ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/jcungban && \
+# 5. Cấu hình tài khoản root:root và X11
+RUN echo "jcungban:meows.vn" | chpasswd && \
     mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id && \
     mkdir -p /etc/X11 && echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
 
@@ -64,7 +64,7 @@ RUN mkdir -p /etc/pulse && \
 # 7. Khởi động XFCE cùng D-Bus và script căn chỉnh
 RUN printf '#!/bin/sh\nunset DBUS_SESSION_BUS_ADDRESS\nunset XDG_RUNTIME_DIR\nexport LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\ndevilspie2 &\nexec dbus-launch --exit-with-session startxfce4\n' > /etc/xrdp/startwm.sh && \
     chmod +x /etc/xrdp/startwm.sh && \
-    echo "startxfce4" > /home/jcungban/.xsession && chmod 700 /home/jcungban/.xsession
+    echo "startxfce4" > /root/.xsession && chmod 700 /jcungban/.xsession
 
 # 8. Cấu hình XRDP
 RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
@@ -74,8 +74,8 @@ RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
     adduser xrdp ssl-cert
 
 # 9. Chống trôi cửa sổ phía XFCE
-RUN mkdir -p /home/jcungban/.config/xfce4/xfconf/xfce-perchannel-xml && \
-    printf '<?xml version="1.0" encoding="UTF-8"?>\n<channel name="xfwm4" version="1.0">\n  <property name="general" type="empty">\n    <property name="prevent_placement_offscreen" type="bool" value="true"/>\n  </property>\n</channel>\n' > /home/jcungban/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml && chown -R jcungban:jcungban /home/jcungban
+RUN mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<channel name="xfwm4" version="1.0">\n  <property name="general" type="empty">\n    <property name="prevent_placement_offscreen" type="bool" value="true"/>\n  </property>\n</channel>\n' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
 
 # 10. File khởi động
 RUN printf '#!/bin/bash\nrm -rf /var/run/xrdp/* /var/run/dbus/*\nmkdir -p /var/run/xrdp/sockdir /var/run/dbus\nchown -R xrdp:xrdp /var/run/xrdp\ndbus-daemon --system --fork\n/usr/sbin/xrdp-sesman\nexec /usr/sbin/xrdp -n\n' > /start.sh && \
