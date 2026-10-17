@@ -40,11 +40,8 @@ ENV LC_ALL=en_US.UTF-8
 # 3. Đặt XFCE Terminal làm terminal mặc định
 RUN update-alternatives --set x-terminal-emulator /usr/bin/xfce4-terminal.wrapper
 
-# 4. TẠO TÀI KHOẢN jcungban TRƯỚC ĐỂ KHỞI TẠO ĐỦ THƯ MỤC CHUẨN
-RUN useradd -m -s /bin/bash jcungban && echo "jcungban:meows.vn" | chpasswd && echo "jcungban ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/jcungban
-
-# 5. TỰ ĐỘNG CÂN CHỈNH CỬA SỔ (DÀNH CHO JCUNGBAN)
-RUN mkdir -p /home/jcungban/.config/devilspie2 && \
+# 4. TỰ ĐỘNG CÂN CHỈNH: TẤT CẢ CỬA SỔ RỘNG BẰNG NHAU + VỪA VẶN MÀN HÌNH (KHÔNG TRÀN VIỀN)
+RUN mkdir -p /root/.config/devilspie2 && \
     printf 'if (get_window_type() == "WINDOW_TYPE_NORMAL") then\n\
     local sw, sh = get_screen_geometry();\n\
     local x, y, w, h = get_window_geometry();\n\
@@ -53,31 +50,35 @@ RUN mkdir -p /home/jcungban/.config/devilspie2 && \
     local target_h = math.min(h, sh - 85);\n\
     local target_y = math.max(y, 28);\n\
     set_window_geometry(target_x, target_y, target_w, target_h);\n\
-end\n' > /home/jcungban/.config/devilspie2/fit_screen.lua
+end\n' > /root/.config/devilspie2/fit_screen.lua
+
+# 5. Cấu hình tài khoản root:root và X11
+RUN echo "root:root" | chpasswd && \
+    mkdir -p /var/lib/dbus && dbus-uuidgen > /var/lib/dbus/machine-id && \
+    mkdir -p /etc/X11 && echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
 
 # 6. Cấu hình âm thanh pulse-client.conf
 RUN mkdir -p /etc/pulse && \
     printf 'default-server = unix:/run/pulse/native\nautospawn = no\ndaemon-binary = /bin/true\n' > /etc/pulse/client.conf
 
-# 7. KHỞI ĐỘNG XFCE CÙNG D-BUS (SỬA LỖI MÀN HÌNH XANH RỖNG)
+# 7. Khởi động XFCE cùng D-Bus và script căn chỉnh
 RUN printf '#!/bin/sh\nunset DBUS_SESSION_BUS_ADDRESS\nunset XDG_RUNTIME_DIR\nexport LANG=en_US.UTF-8\nexport LC_ALL=en_US.UTF-8\ndevilspie2 &\nexec dbus-launch --exit-with-session startxfce4\n' > /etc/xrdp/startwm.sh && \
     chmod +x /etc/xrdp/startwm.sh && \
-    cp /etc/xrdp/startwm.sh /home/jcungban/.xsession && chmod 755 /home/jcungban/.xsession
+    echo "startxfce4" > /root/.xsession && chmod 700 /root/.xsession
 
-# 8. Cấu hình XRDP và X11
+# 8. Cấu hình XRDP
 RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
     sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini && \
     sed -i 's/\[Xorg\]/\[Xorg_disabled\]/' /etc/xrdp/xrdp.ini && \
-    mkdir -p /var/lib/dbus /etc/X11 && dbus-uuidgen > /var/lib/dbus/machine-id && \
-    echo "allowed_users=anybody" > /etc/X11/Xwrapper.config && adduser xrdp ssl-cert
+    sed -i 's/AllowRootLogin=false/AllowRootLogin=true/' /etc/xrdp/sesman.ini && \
+    adduser xrdp ssl-cert
 
-# 9. Chống trôi cửa sổ và gán toàn quyền thư mục cho user jcungban
-RUN mkdir -p /home/jcungban/.config/xfce4/xfconf/xfce-perchannel-xml && \
-    printf '<?xml version="1.0" encoding="UTF-8"?>\n<channel name="xfwm4" version="1.0">\n  <property name="general" type="empty">\n    <property name="prevent_placement_offscreen" type="bool" value="true"/>\n  </property>\n</channel>\n' > /home/jcungban/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml && \
-    chown -R jcungban:jcungban /home/jcungban
+# 9. Chống trôi cửa sổ phía XFCE
+RUN mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<channel name="xfwm4" version="1.0">\n  <property name="general" type="empty">\n    <property name="prevent_placement_offscreen" type="bool" value="true"/>\n  </property>\n</channel>\n' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
 
-# 10. File khởi động hệ thống (phân quyền /tmp/.X11-unix cho user thường)
-RUN printf '#!/bin/bash\nrm -rf /var/run/xrdp/* /var/run/dbus/* /tmp/.X*\nmkdir -p /var/run/xrdp/sockdir /var/run/dbus /tmp/.X11-unix\nchmod 1777 /tmp /tmp/.X11-unix\nchown -R xrdp:xrdp /var/run/xrdp\ndbus-daemon --system --fork\n/usr/sbin/xrdp-sesman\nexec /usr/sbin/xrdp -n\n' > /start.sh && \
+# 10. File khởi động
+RUN printf '#!/bin/bash\nrm -rf /var/run/xrdp/* /var/run/dbus/*\nmkdir -p /var/run/xrdp/sockdir /var/run/dbus\nchown -R xrdp:xrdp /var/run/xrdp\ndbus-daemon --system --fork\n/usr/sbin/xrdp-sesman\nexec /usr/sbin/xrdp -n\n' > /start.sh && \
     chmod +x /start.sh
 
 EXPOSE 3389
